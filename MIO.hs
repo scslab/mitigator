@@ -7,14 +7,14 @@ module MIO where
 import Control.Applicative
 import Control.Monad.State hiding (get, put)
 import Control.Concurrent
-import System.CPUTime
 import System.Posix.Unistd
 import Lock
 
 --TODO: REMOVE:
 import System.IO
-import qualified Data.ByteString as BS
-
+import System.Posix.Clock
+--import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 --
 
 type MitNr = Int
@@ -63,6 +63,19 @@ class Monad m => MonadMIO m where
 instance MonadMIO IO where 
   liftMIO a = MIO . StateT $ \s -> a >>= \r -> return (r, s)
 
+unMIO :: (MonadMIO m) => MIO m a -> MIOState -> m (a, MIOState)
+unMIO (MIO (StateT f)) = f
+
+newEmptyMIOState :: MonadIO m => m MIOState
+newEmptyMIOState = liftIO $ do
+  lock <- newLock
+  return (MIOState {mioMs = [], mioNr = 0, mioLock = lock} )
+
+runMIO :: (MonadIO m) => MIO m a -> m (a, MIOState)
+runMIO (MIO (StateT f)) = do
+  s <- newEmptyMIOState
+  f s
+
 -- | Execute an MIO action atomic w.r.t state.
 withMIOLock :: MonadMIO m => MIO m a -> MIO m a
 withMIOLock io = do
@@ -110,43 +123,50 @@ mitigateC q m = do lm <- lift m
                      return nr
                    return $ Mitigated (nr, lm)
 
+getTStamp :: MonadMIO m => MIO m Integer
+getTStamp = liftMIO $ do
+  (TimeSpec s n) <- getTime Monotonic
+  return $ ((fromIntegral s) * secInNano)  + (fromIntegral n)
+
+
 mitigate :: MonadMIO m => Mitigated a -> (a -> m b) -> MIO m b
 mitigate (Mitigated (nr,x)) m = do
   ms <- getMState nr 
-  t1 <- liftMIO $ getCPUTime
-  let t0 = maybe t1 id (mTStamp ms)
+  t1 <- getTStamp
+  let q = mQuantSize ms
+      t0 = case mTStamp ms of
+             Nothing -> t1-q
+             Just t -> t
       delta = t1 - t0
-      q = mQuantSize ms
-      q' = if delta < q then q else q*2
-  unless (delta >= q) $ liftMIO . picosleep $ (q - delta)
-  t2 <- liftMIO $ getCPUTime
+      q' = if delta <= q then q else q*2
+  when (delta <  q) $ liftMIO . nanosleep $ (q - delta)
+  t2 <- getTStamp
   putMState nr (ms { mQuantSize = q', mTStamp = Just t2 })
   lift (m x)
 
-milliInPico :: Integer
-milliInPico = 1000000000
+milliInNano :: Integer
+milliInNano = 1000000
 
-nanoInPico :: Integer
-nanoInPico = 1000
-
-picosleep :: Integer -> IO ()
-picosleep ns = nanosleep (ns `div` nanoInPico) 
+secInNano :: Integer
+secInNano = 1000000000
 
 openFile' :: FilePath -> IOMode -> MIO IO (Mitigated Handle)
-openFile' f mode = mitigateC (500 * milliInPico) $ openFile f mode
+openFile' f mode = mitigateC (10 * milliInNano) $ openFile f mode
 
 hPut' :: Mitigated Handle -> BS.ByteString -> MIO IO ()
 hPut' mH bs = mitigate mH $ \h -> BS.hPut h bs
 
+hFlush' :: Mitigated Handle -> MIO IO ()
+hFlush' (Mitigated (_,h)) = liftMIO $ hFlush h
 
+hClose' :: Mitigated Handle -> MIO IO ()
+hClose' (Mitigated (_,h)) = liftMIO $ hClose h
 
-
-
-
-
-
-
-
-
-
+test = runMIO $ do
+  h <- openFile' "/tmp/woo" WriteMode
+  sequence_ $ replicate 5 $ hPut' h (BS.pack "hello world") >> hFlush' h
+  liftMIO $ putStrLn "about to miss" >> sleep 2 >> putStrLn "DONE!"
+  hPut' h (BS.pack "hello world") >> hFlush' h
+  sequence_ $ replicate 5 $ hPut' h (BS.pack "hello world") >> hFlush' h
+  hClose' h
 
