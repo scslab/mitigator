@@ -55,7 +55,7 @@ class Mitigator s q | s -> q where
                      return $ Mitigated nr lm
 
   -- | Mitigate function.
-  mitigate :: MonadMIO m => Mitigated s a -> (a -> m b) -> MIO s q m b
+  mitigate :: MonadMIO m => Mitigated s a -> (a -> MIO s q m b) -> MIO s q m b
 
 
 --

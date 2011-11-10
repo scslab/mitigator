@@ -63,7 +63,7 @@ instance Mitigator TStamp TStampDiff where
     when (delta <  q) $ liftMIO . nanosleep . unTStampDiff $ (q `tStampDiff` delta)
     t2 <- getTStamp
     putMIOState nr (ms { mQuant = q', mState = Just t2 })
-    lift (m x)
+    m x
 
 
 -- | Get time stamp.

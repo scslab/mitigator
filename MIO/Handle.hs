@@ -17,9 +17,6 @@ module MIO.Handle ( FilePath
                   , hIsReadable
                   , hIsWriteable
                   ) where
---REMOVE
-import Control.Exception (evaluate)
-
 import Mitigator
 import Mitigator.Time
 import System.Posix.Unistd
@@ -36,10 +33,10 @@ openFile f mode = mitigateC (quant $ milliToNano 1000) $ do
   return h
 
 hPut :: Handle -> BS.ByteString -> MIOTime IO ()
-hPut mH bs = mitigate mH $ \h -> BS.hPut h bs
+hPut mH bs = mitigate mH $ \h -> liftMIO $ BS.hPut h bs
 
 hPutStrLn :: Handle -> BS.ByteString -> MIOTime IO ()
-hPutStrLn mH bs = mitigate mH $ \h -> BS.hPutStrLn h bs
+hPutStrLn mH bs = mitigate mH $ \h -> liftMIO $ BS.hPutStrLn h bs
 
 hGetLine :: Handle -> MIOTime IO BS.ByteString
 hGetLine = liftMIO . (BS.hGetLine . mitVal)
