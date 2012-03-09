@@ -19,7 +19,7 @@ import Mitigator
 import Control.Monad.State.Strict
 import Control.Concurrent ( threadDelay )
 
-import Debug.Trace
+--import Debug.Trace
 
 
 --
@@ -111,7 +111,7 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
         q' = TStampDiff . (if delta <= q then id else (^factor)) $ unTStampDiff q
         -- ^ If we did not meet the schedule, double the quota
     t1New <- lift getTStamp
-    when (delta > q) $ trace ("factor = "++ show factor ++ " new q = " ++ show q') (return ())
+    --when (delta > q) $ trace ("factor = "++ show factor ++ " new q = " ++ show q') (return ())
     -- ^ get another time stamp, takeMitigatorState have blocked
     let deltaNew = t1New `tStampDiff` t0
     --when (delta < q) $ lift $ putStrLn "sleeping" 
