@@ -19,62 +19,67 @@ module MIO.Handle ( FilePath
                   ) where
 import Mitigator
 import Mitigator.Time
-import System.Posix.Unistd
-import System.IO (IO, IOMode(..), BufferMode(..))
+import System.IO (IOMode(..), BufferMode(..))
 import qualified System.IO as SIO
 import qualified Data.ByteString.Char8 as BS
+import Control.Monad.Trans
 
 type Handle = TimeMitigated SIO.Handle
 
-openFile :: FilePath -> IOMode -> MIOTime IO (Handle)
-openFile f mode = mitigateC (quant $ milliToNano 1000) $ do
+openFile :: FilePath -> IOMode -> TimeMitM IO (Handle)
+openFile f mode = mkMitigated Nothing (mkQuant 1000) $ do
   h <- SIO.openFile f mode
   SIO.hSetBuffering h NoBuffering
   return h
 
-hPut :: Handle -> BS.ByteString -> MIOTime IO ()
-hPut mH bs = mitigate mH $ \h -> liftMIO $ BS.hPut h bs
+hPut :: Handle -> BS.ByteString -> TimeMitM IO ()
+hPut mH bs = mitigateWrite mH $ \h -> BS.hPut h bs
 
-hPutStrLn :: Handle -> BS.ByteString -> MIOTime IO ()
-hPutStrLn mH bs = mitigate mH $ \h -> liftMIO $ BS.hPutStrLn h bs
+hPutStrLn :: Handle -> BS.ByteString -> TimeMitM IO ()
+hPutStrLn mH bs = mitigateWrite mH $ \h -> BS.hPutStrLn h bs
 
-hGetLine :: Handle -> MIOTime IO BS.ByteString
-hGetLine = liftMIO . (BS.hGetLine . mitVal)
+hGetLine :: Handle -> TimeMitM IO BS.ByteString
+hGetLine = lift . BS.hGetLine . mitVal
 
-hGetContents :: Handle -> MIOTime IO BS.ByteString
-hGetContents = liftMIO . (BS.hGetContents . mitVal)
+hGetContents :: Handle -> TimeMitM IO BS.ByteString
+hGetContents = lift . BS.hGetContents . mitVal
 
-hGet :: Handle -> Int -> MIOTime IO BS.ByteString
-hGet mH = liftMIO . (BS.hGet . mitVal $ mH)
+hGet :: Handle -> Int -> TimeMitM IO BS.ByteString
+hGet mH = lift . (BS.hGet . mitVal $ mH)
 
-hClose :: Handle -> MIOTime IO ()
-hClose = liftMIO . (SIO.hClose . mitVal)
+hClose :: Handle -> TimeMitM IO ()
+hClose = lift . SIO.hClose . mitVal
 
-hIsEOF :: Handle -> MIOTime IO Bool
-hIsEOF = liftMIO . (SIO.hIsEOF . mitVal)
+hIsEOF :: Handle -> TimeMitM IO Bool
+hIsEOF = lift . SIO.hIsEOF . mitVal
 
-hIsOpen :: Handle -> MIOTime IO Bool
-hIsOpen = liftMIO . (SIO.hIsOpen . mitVal)
+hIsOpen :: Handle -> TimeMitM IO Bool
+hIsOpen = lift . SIO.hIsOpen . mitVal
 
-hIsClosed :: Handle -> MIOTime IO Bool
-hIsClosed = liftMIO . (SIO.hIsClosed . mitVal)
+hIsClosed :: Handle -> TimeMitM IO Bool
+hIsClosed = lift . SIO.hIsClosed . mitVal
 
-hIsReadable :: Handle -> MIOTime IO Bool
-hIsReadable = liftMIO . (SIO.hIsReadable . mitVal)
+hIsReadable :: Handle -> TimeMitM IO Bool
+hIsReadable = lift . SIO.hIsReadable . mitVal
 
-hIsWriteable :: Handle -> MIOTime IO Bool
-hIsWriteable = liftMIO . (SIO.hIsWritable . mitVal)
+hIsWriteable :: Handle -> TimeMitM IO Bool
+hIsWriteable = lift . SIO.hIsWritable . mitVal
 
+{-
+hFlush :: Handle -> TimeMitM IO ()
+hFlush = lift . SIO.hFlush . mitVal
 
-test = evalMIO $ do
-  h <- openFile "/tmp/woo" ReadWriteMode
-  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") -- >> hFlush h
-  liftMIO $ putStrLn "about to miss" >> sleep 2 >> putStrLn "DONE!"
-  hPut h (BS.pack "hello world") -- >> hFlush h
-  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") -- >> hFlush h
-  liftMIO $ putStrLn "starting read"
-  sequence_ $ replicate 15 $ hGet h 1 >>= \b -> liftMIO $ BS.putStrLn b
+test = evalMitM $ do
+  h <- openFile "/tmp/woz" ReadWriteMode
+  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
+  lift $ putStrLn "about to miss" >> threadDelay 900 >> putStrLn "DONE!"
+  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
+--  hPut h (BS.pack "hello world") >> hFlush h
+--  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
+--  lift $ putStrLn "starting read"
+--  sequence_ $ replicate 15 $ hGet h 1 >>= \b -> lift $ BS.putStrLn b
   hClose h
 
 
 
+-}
