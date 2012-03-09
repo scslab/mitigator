@@ -48,7 +48,7 @@ hGet :: Handle -> Int -> TimeMitM IO BS.ByteString
 hGet mH = lift . (BS.hGet . mitVal $ mH)
 
 hClose :: Handle -> TimeMitM IO ()
-hClose = lift . SIO.hClose . mitVal
+hClose mH = mitigateWrite mH $ \h -> SIO.hClose h
 
 hIsEOF :: Handle -> TimeMitM IO Bool
 hIsEOF = lift . SIO.hIsEOF . mitVal
@@ -64,22 +64,3 @@ hIsReadable = lift . SIO.hIsReadable . mitVal
 
 hIsWriteable :: Handle -> TimeMitM IO Bool
 hIsWriteable = lift . SIO.hIsWritable . mitVal
-
-{-
-hFlush :: Handle -> TimeMitM IO ()
-hFlush = lift . SIO.hFlush . mitVal
-
-test = evalMitM $ do
-  h <- openFile "/tmp/woz" ReadWriteMode
-  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
-  lift $ putStrLn "about to miss" >> threadDelay 900 >> putStrLn "DONE!"
-  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
---  hPut h (BS.pack "hello world") >> hFlush h
---  sequence_ $ replicate 5 $ hPut h (BS.pack "hello world") >> hFlush h
---  lift $ putStrLn "starting read"
---  sequence_ $ replicate 15 $ hGet h 1 >>= \b -> lift $ BS.putStrLn b
-  hClose h
-
-
-
--}
