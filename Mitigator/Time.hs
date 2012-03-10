@@ -20,6 +20,7 @@ import Mitigator
 import Control.Monad.State.Strict
 import Control.Concurrent ( threadDelay )
 
+#define DEBUG
 #ifdef DEBUG
 import Debug.Trace
 #endif
@@ -130,9 +131,14 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
 #ifdef DEBUG
       when (delta > q) $
         trace ("multiplying q of "++ show nr ++ " by "
-                 ++ show (2^factor) ++ " to " ++ show q') (return ())
+                 ++ show ((2^factor)::Integer) ++ " to " ++ show q') (return ())
 #endif
       let deltaNew = t1New `tStampDiff` t0
+#ifdef DEBUG
+      when (delta < q) $
+        trace ("sleeping " ++ show nr ++ "for "
+                 ++ show (q `tStampDiff` deltaNew)) (return ())
+#endif
       when (deltaNew < q) $ microSleep $ q `tStampDiff` deltaNew
       -- Sleep if we still have room in quota
       m h
