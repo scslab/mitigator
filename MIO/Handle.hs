@@ -19,7 +19,7 @@ module MIO.Handle ( FilePath
                   ) where
 import Mitigator
 import Mitigator.Time
-import System.IO (IOMode(..), BufferMode(..))
+import System.IO (BufferMode(..))
 import qualified System.IO as SIO
 import qualified Data.ByteString.Char8 as BS
 import Control.Monad.Trans
@@ -27,14 +27,24 @@ import Control.Monad.Trans
 -- | Time-mitigated handle.
 type Handle = TimeMitigated SIO.Handle
 
--- | Given a file path, operation mode, and initial quantum open file.
+-- | File read/write mode.
+data IOMode = ReadMode           -- ^ Read-only
+            | WriteMode Integer  -- ^ Mitigated write-only
+            | AppendMode Integer -- ^ Mitigated write-only
+            deriving (Eq, Show)
+
+-- | Given a file path, and operation modea open file.
 -- Note that the quantum is only used to mitigate writes (with 'hPut'
--- and 'hPutStrLn') and thus is ignored if the file mode is 'ReadMode'.
-openFile :: FilePath -> IOMode -> Integer -> TimeMitM IO Handle
-openFile f mode q = mkMitigated Nothing (mkQuant q) $ do
+-- and 'hPutStrLn') and thus is supplied with the 'IOMode'.
+openFile :: FilePath -> IOMode -> TimeMitM IO Handle
+openFile f mMode = mkMitigated Nothing (mkQuant q) $ do
   h <- SIO.openFile f mode
   SIO.hSetBuffering h NoBuffering
   return h
+    where (q,mode) = case mMode of
+                       WriteMode x  -> (x, SIO.WriteMode)
+                       AppendMode x -> (x, SIO.AppendMode)
+                       ReadMode     -> (0, SIO.ReadMode)
 
 -- | Outputs a 'ByteString' to the specified 'Handle'.
 hPut :: Handle -> BS.ByteString -> TimeMitM IO ()
