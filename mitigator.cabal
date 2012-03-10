@@ -1,5 +1,5 @@
 Name:           mitigator
-Version:        0.0.0
+Version:        0.0.1
 build-type:     Simple
 License:        GPL
 License-File:   LICENSE
@@ -21,7 +21,7 @@ Library
                  mtl >= 1.1.0.2 && < 3,
                  clock>=0.2.0.0 && < 0.3
 
-  ghc-options: -Wall
+  ghc-options: -Wall -threaded
   Exposed-modules:
     MonadConcur,
     Mitigator,
