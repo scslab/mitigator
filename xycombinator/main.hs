@@ -27,7 +27,10 @@ import           Data.IterIO.HttpRoute
 import qualified Data.ListLike as LL
 
 import qualified LIO.TCB as LIO
+import LIO.Concurrent
+import LIO.LIORef.TCB
 import LIO.DCLabel hiding (name)
+import System.Posix.Unistd
 import DCLabel.NanoEDSL
 
 type L = L.ByteString
@@ -79,6 +82,7 @@ handleRequest h = do
                           , routeMap [ ("welcome", routeFn $ mkHandler welcome)
                                      , ("matches", routeFn $ mkHandler matches)
                                      , ("termination", routeFn $ mkHandler termination)
+                                     , ("internal", routeFn $ mkHandler internal)
                                      ]
                           ]
 
@@ -119,23 +123,47 @@ termination req = do
   let (Just mtch) = matchRegex (mkRegex "fid=([0-9]+)") $ S.unpack $ reqQuery req
   let fid = read $ P.head mtch
 
+  -- THIS IS THE IMPORTANT PART
   LIO.toLabeled LIO.ltop $ do
     interested <- interestFor uid
     if fid `elem` interested then
       forever $ return ()
       else return ()
-  let body = renderHtml $
-               page $ do
-                h2 $ "Hi guest attacker!"
-                p $ do
-                  "User with id "
-                  toHtml $ show fid
-                  " named "
-                  toHtml $ users Map.! fid
-                  " is not interested in user with id "
-                  toHtml $ show uid
-                  " named "
-                  toHtml $ users Map.! uid
+  -- THIS IS THE IMPORTANT PART
+
+  let body = renderHtml $ "Hi attacker! You guessed wrong..."
+  return $ (stat200, body)
+
+sleepLIO :: LIO.LabelState l p s => Int -> LIO.LIO l p s Int
+sleepLIO t = LIO.ioTCB $ sleep t
+
+internal :: HttpReq () -> DC (HttpStatus, L)
+internal req = do
+  let (Just mtch) = matchRegex (mkRegex "uid=([0-9]+)") $ S.unpack $ reqQuery req
+  let uid = read $ P.head mtch
+  let (Just mtch) = matchRegex (mkRegex "fid=([0-9]+)") $ S.unpack $ reqQuery req
+  let fid = read $ P.head mtch
+
+  -- THIS IS THE IMPORTANT PART
+  shared <- newLIORef lpub [] -- Simulates a persistent datastore
+
+  refHi <- lFork lpub $ do
+    LIO.toLabeled LIO.ltop $ do
+      interested <- interestFor uid
+      if fid `elem` interested then do
+        sleepLIO 5
+        return ()
+        else return ()
+    modifyLIORef shared (1:)
+  refLow <- lFork lpub $ do
+    sleepLIO 3
+    modifyLIORef shared (0:)
+
+  lWait refHi
+  lWait refLow
+  -- THIS IS THE IMPORTANT PART
+  result <- readLIORef shared
+  let body = renderHtml $ toHtml $ show result
   return $ (stat200, body)
 
 matches :: HttpReq () -> DC (HttpStatus, L)
