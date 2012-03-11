@@ -2,12 +2,32 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
--- | General interface to a time-mitigated IO monad.
+-- | General interface to a time-mitigated monads.
+-- The first 'TimeMitM' and corresponding 'TimeMitigated' handle
+-- mitigate inputs to the underlying computations (which themselves
+-- may block for indefinite amount of time) -- an example use case
+-- is the mitigation of file handles or sockets.
+--
+-- Conversely, the 'TimeMitMC' and corresponding 'TimeMitigatedC' 
+-- mitigate computations and not the input to the computation. An
+-- example use case is an web application that produces the
+-- message-body which is itself sent to the client by trusted code.
+-- In this case, the app itself needs to be mitigated (unless 
+-- a separate \"handle\" corresponding to the app accross different
+-- requests is kept).
 
-module Mitigator.Time ( TimeMitM
+module Mitigator.Time ( -- * Time migator
+                        TimeMitM
                       , TimeMitigated
                       , mkQuant
                       , wait
+                        --  * Computation mitigator
+                      , TimeMitMC
+                      , TimeMitigatedC
+                        -- * Time related
+                      , MonadTime(..)
+                      , TStamp(..)
+                      , TStampDiff(..)
                       ) where
 
 import Data.Maybe
@@ -48,12 +68,17 @@ newtype TStampDiff = TStampDiff { unTStampDiff :: Integer }
 instance Show TStampDiff where
   show = show . unTStampDiff
 
--- | Type of mitigated monad.
+-- | Type of time-mitigated monad.
 type TimeMitM = MitM TStamp TStampDiff
 
 -- | Time-mitigated handle.
 type TimeMitigated = Mitigated TStamp
 
+-- | Type of time-mitigated computation monad.
+type TimeMitMC = MitM () TStampDiff
+
+-- | Time-mitigated computation.
+type TimeMitigatedC = Mitigated ()
 
 --  Operations
 
@@ -100,7 +125,7 @@ mkQuant = TStampDiff
 -- used by functions that need to block on the last operation on
 -- mitigated handle.
 wait :: (MonadConcur m, MonadTime m)
-     => Mitigated TStamp a
+     => Mitigated s a
      -> (a -> m ())
      -> MitM s q m ()
 wait (Mitigated nr h) m = do
@@ -109,8 +134,9 @@ wait (Mitigated nr h) m = do
                    m h
                    putMVar mvar ms
 
+-- | Instance for mitigating handles, or conceputally inputs to computation.
 instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
-  mitigateWrite (Mitigated nr h) m = do
+  mitigate (Mitigated nr h) m = do
     t1 <- lift getTStamp
     -- Get current time stamp
     mvar <- getMitMState >>= \s -> return $ mioMs s Map.! nr
@@ -119,12 +145,9 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
       ms   <- takeMVar mvar
       let q  = mQuant ms
           -- Current quantum
-          t0 = fromMaybe (toTStamp $ t1 `tStampDiff` q) $ mState ms 
+          t0 = fromMaybe t1 $ mState ms 
           -- Last time stamp
-          delta = t1 `tStampDiff` t0
-          -- Difference between "now" and last time
-          factor = unTStampDiff delta `div` unTStampDiff q
-          q' = TStampDiff . (if delta <= q then id else (*(2^factor))) $ unTStampDiff q
+          (delta, q') = computeNewQuantum t1 t0 q
           -- If we did not meet the schedule, double the quota
       t1New <- getTStamp
       -- Get another time stamp, takeMitigatorState have blocked
@@ -134,12 +157,8 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
              ++ "  t0 = " ++ show  t0
              ++ "  t1 = " ++ show  t1
              ++ "  delta = " ++ show  delta
+             ++ "  q' = " ++ show q'
              ) (return ())
-#endif
-#ifdef DEBUG
-      when (delta > q) $
-        trace ("multiplying q of "++ show nr ++ " by "
-                 ++ show ((2^factor)::Integer) ++ " to " ++ show q') (return ())
 #endif
       let deltaNew = t1New `tStampDiff` t0
 #ifdef DEBUG
@@ -154,6 +173,24 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
       t2 <- getTStamp
       -- Get new timestamp
       putMVar mvar $ ms { mQuant = q', mState = Just t2 }
+      -- Update state
+
+-- | Instance for mitigating computation.
+instance (MonadConcur m, MonadTime m) => Mitigator m () TStampDiff where
+  mitigate (Mitigated nr h) m = do
+    mvar <- getMitMState >>= \s -> return $ mioMs s Map.! nr
+    -- Get mitigator state and MVar holding it:
+    lift $ fork $ do
+      ms <- takeMVar mvar
+      t0 <- getTStamp
+      m h
+      t1 <- getTStamp
+      let q  = mQuant ms
+          -- Last time stamp
+          (delta, q') = computeNewQuantum t1 t0 q
+          -- If we did not meet the schedule, double the quota
+      when (delta < q) $ microSleep $ q `tStampDiff` delta
+      putMVar mvar $ ms { mQuant = q' }
       -- Update state
 
 -- | Class of monads that can measure time.
@@ -171,9 +208,21 @@ instance MonadTime IO where
                         secToNano (fromIntegral s)  + fromIntegral n
   microSleep = threadDelay . fromInteger . unTStampDiff
 
+
 --
 -- Misc unit conversions
 --
+
+-- | Compute the time difference and new quantum.
+computeNewQuantum :: TStamp     -- ^ New time
+                  -> TStamp     -- ^ Old time
+                  -> TStampDiff -- ^ Current quantum
+                  -> (TStampDiff, TStampDiff)
+computeNewQuantum t1 t0 q =
+  let d = t1 `tStampDiff` t0
+      factor = unTStampDiff d `div` unTStampDiff q
+      q' = TStampDiff . (if d <= q then id else (*(2^factor))) $ unTStampDiff q
+   in (d, q')
 
 -- | Convert seconds to nanoseconds.
 secToNano :: Integer -> Integer

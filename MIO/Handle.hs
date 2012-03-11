@@ -66,12 +66,12 @@ modeToIOMode mMode =
 
 -- | Outputs a 'ByteString' to the specified 'Handle'.
 hPut :: Handle -> BS.ByteString -> MIO ()
-hPut mH bs = mitigateWrite mH $ \h -> BS.hPut h bs
+hPut mH bs = mitigate mH $ \h -> BS.hPut h bs
 
 -- | Outputs a 'ByteString' to the specified 'Handle', appending a
 -- newline byte.
 hPutStrLn :: Handle -> BS.ByteString -> MIO ()
-hPutStrLn mH bs = mitigateWrite mH $ \h -> BS.hPutStrLn h bs
+hPutStrLn mH bs = mitigate mH $ \h -> BS.hPutStrLn h bs
 
 -- | Read entier handle contents, strictly into a 'Bytestring'.
 hGetContents :: Handle -> MIO BS.ByteString

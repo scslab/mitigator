@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -8,11 +7,13 @@ import           Data.IterIO.Http
 import           Data.IterIO.HttpRoute
 import           Data.IterIO.SSL
 import qualified Data.ByteString.Lazy as L
+import qualified Data.ByteString.Char8 as S8
 import           Data.Monoid
+import           Data.Maybe
 
 import           Control.Monad
 import           Control.Monad.Trans
-import           Control.Concurrent (forkIO)
+import           Control.Concurrent (forkIO, threadDelay)
 import           Control.Concurrent.QSem
 import           Control.Exception
 
@@ -27,6 +28,9 @@ import           System.IO
 import           MonadConcur
 import           Mitigator
 import           Mitigator.Time
+
+import           Text.Regex (matchRegex, mkRegex)
+
 
 
 type L = L.ByteString
@@ -67,8 +71,8 @@ acceptLoop srv = do
 
 createRoute :: MIO (HttpRoute IO ())
 createRoute = do
-  handles <- sequence [ appHandle "app1" app1 5000000
-                      , appHandle "app2" app2 1000000 
+  handles <- sequence [ appHandle "app1" app1 1000000
+                      , appHandle "app2" app2 5000000 
                       ]
   s <- getMitMState
   lift $ print s
@@ -76,11 +80,14 @@ createRoute = do
   return $ mconcat [ routeMap routes ]
     where getName (Mitigated _ (AppHandle n _)) = n
 
-routeAppHandle :: Mitigator IO s q
-               => Mitigated s AppHandle -> MitMState s q -> HttpRoute IO ()
+routeAppHandle :: TimeMitigatedC AppHandle
+               -> MitMState () TStampDiff
+               -> HttpRoute IO ()
 routeAppHandle mh s = routeFn $ \req -> lift $ liftM fst $ flip runMitM s $ do
   mvar <- lift newEmptyMVar
-  mitigateWrite mh $ \(AppHandle _ h) -> do
+  --mitigateWrite mh $ \(AppHandle _ h) -> do
+  mitigate mh $ \(AppHandle _ h) -> do
+  --mitigateWithInput mh Nothing $ \(AppHandle _ h) -> do
     body <- h req
     putMVar mvar body
   body <- lift $ takeMVar mvar
@@ -94,17 +101,21 @@ data AppHandle = AppHandle String (HttpReq () -> IO L)
 appHandle :: String
           -> (HttpReq () -> IO L)
           -> Integer
-          -> MIO (TimeMitigated AppHandle)
+          -> MIO (TimeMitigatedC AppHandle)
 appHandle n f q = mkMitigated Nothing (mkQuant q) $ return $ AppHandle n f
 
 instance Show AppHandle where
   show (AppHandle s _) = s
 
 app1 :: HttpReq s -> IO L
-app1 _ = return "App1"
+app1 req = do
+  --params <- foldForm req docontrol [] |$ pureI
+ let q = matchRegex (mkRegex "delay=([0-9]+)") $ S8.unpack $ reqQuery req
+ when (isJust q) $ threadDelay (read . head $ fromJust q)
+ return "App1"
 
 app2 :: HttpReq s -> IO L
 app2 _ = return "App2"
 -- | Time mitigated IO monad.
-type MIO = TimeMitM IO 
+type MIO = TimeMitMC IO 
 

@@ -9,7 +9,7 @@ import System.Posix.Clock
 
 main :: IO ()
 main = forever $ do
-  time $ http "http://localhost:8000/app2"
+  time $ http "http://localhost:8000/app1"
 
 http url = do resp <- simpleGetHttp url
               enumHttpResp resp |$ stdoutI

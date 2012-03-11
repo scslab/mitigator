@@ -1,11 +1,6 @@
-{-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 704
-{-# LANGUAGE Unsafe #-}
-#endif
 -- | This module preesnts a general mitigator interface and a
 -- mitigated monad @MitM@.
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Mitigator ( -- * Mitigators and mitigated \"handles\"
                    Mitigated(..)
@@ -51,11 +46,12 @@ data MitigatorState s q = MitigatorState { mState :: !(Maybe s)
 
 -- | A mitigator parametrized by the mitigator internal state type and
 -- quantum type.
-class MonadConcur m => Mitigator m s q | s -> q where
+class MonadConcur m => Mitigator m s q where
   -- | Mitigate write function.
-  mitigateWrite :: Mitigated s a    -- ^ Mitigated \"handle\"
-                -> (a -> m ())      -- ^ Computation on handle to mitigate
-                -> MitM s q m ()
+  mitigate :: Mitigated s a    -- ^ Mitigated \"handle\"
+           -> (a -> m ())      -- ^ Computation on handle to mitigate
+           -> MitM s q m ()
+
 
   -- | Create a 'Mitigated' \"handle\".
   mkMitigated :: Maybe s  -- ^ Internal state
