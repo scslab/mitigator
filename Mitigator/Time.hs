@@ -129,6 +129,14 @@ instance (MonadConcur m, MonadTime m) => Mitigator m TStamp TStampDiff where
       t1New <- getTStamp
       -- Get another time stamp, takeMitigatorState have blocked
 #ifdef DEBUG
+      trace ("nr = "++ show nr 
+             ++ "  q = " ++ show  q
+             ++ "  t0 = " ++ show  t0
+             ++ "  t1 = " ++ show  t1
+             ++ "  delta = " ++ show  delta
+             ) (return ())
+#endif
+#ifdef DEBUG
       when (delta > q) $
         trace ("multiplying q of "++ show nr ++ " by "
                  ++ show ((2^factor)::Integer) ++ " to " ++ show q') (return ())

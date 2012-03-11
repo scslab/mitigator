@@ -14,6 +14,7 @@ class Monad m => MonadConcur m where
   newMVar      :: a -> m (MVar a)
   takeMVar     :: MVar a -> m a
   putMVar      :: MVar a -> a -> m ()
+  readMVar     :: MVar a -> m a
   withMVar     :: MVar a -> (a -> m b) -> m b
   fork         :: m () -> m ()
 
@@ -22,5 +23,6 @@ instance MonadConcur IO where
   newMVar      = M.newMVar
   takeMVar     = M.takeMVar
   putMVar      = M.putMVar
+  readMVar     = M.readMVar
   withMVar     = M.withMVar
   fork io      = void $ forkIO io

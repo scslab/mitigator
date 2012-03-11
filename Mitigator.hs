@@ -18,6 +18,7 @@ module Mitigator ( -- * Mitigators and mitigated \"handles\"
                  , newEmptyMitMState
                  , runMitM
                  , evalMitM
+                 , forkMitM 
                  -- * Internal
                  , withMitigator
                  , takeMitigatorState
@@ -87,6 +88,10 @@ data MitMState s q = MitMState { mioMs :: Map MitNr (MVar (MitigatorState s q))
                                , mioNr :: !MitNr
                                  -- ^ Number of mitigators
                                }
+instance Show (MitMState s q) where
+  show m = "MitMState { mioNr = " ++ show (mioNr m)
+           ++ ", mioMs = " ++  show (Map.keys $ mioMs m)
+           ++ "}"
 
 -- | Mitigatated monad.
 newtype MitM s q m a = MitM { unMitM :: StateT (MitMState s q) m a }
@@ -101,17 +106,18 @@ putMitMState :: MonadConcur m => MitMState s q -> MitM s q m ()
 putMitMState = MitM . State.put 
 
 -- | Run @MitM@.
-runMitM :: MonadConcur m => MitM s q m a -> MitMState s q -> m (a, MitMState s q)
-runMitM io = runStateT (unMitM io)
+runMitM :: (Functor m, MonadConcur m)
+        => MitM s q m a -> MitMState s q -> m (a, MitMState s q)
+runMitM io s = do
+  (res, s') <- runStateT (unMitM io) s
+  -- Wait for all mitigators to finish:
+  mapM_ (void . readMVar . snd) $ Map.toList $ mioMs s
+  return (res, s')
 
 
 -- | Evaluate @MitM@ action with given state
-evalMitM :: MonadConcur m => MitM s q m a -> m a
-evalMitM io = do
-  (res, s) <- runMitM io newEmptyMitMState
-  -- Wait for all threads to finish writing:
-  mapM_ (takeMVar . snd) $ Map.toList $ mioMs s
-  return res
+evalMitM :: (Functor m, MonadConcur m) => MitM s q m a -> m a
+evalMitM io = liftM fst $ runMitM io newEmptyMitMState
 
 -- | New empty "MitMState"
 newEmptyMitMState :: MitMState s q
@@ -145,3 +151,9 @@ withMitigator nr io = do
   res <- io ms
   lift $ putMVar (mioMs s Map.! nr) ms
   return res
+
+-- | Fork a mitigated computation.
+forkMitM :: (Functor m, MonadConcur m) => MitM s q m () -> MitM s q m ()
+forkMitM mio = do
+  s0 <- getMitMState
+  lift . fork $ (void $ runMitM mio s0)
