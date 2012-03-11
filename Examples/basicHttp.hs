@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -75,7 +76,8 @@ createRoute = do
   return $ mconcat [ routeMap routes ]
     where getName (Mitigated _ (AppHandle n _)) = n
 
---routeAppHandle :: TimeMitigated AppHandle -> HttpRoute IO ()
+routeAppHandle :: Mitigator IO s q
+               => Mitigated s AppHandle -> MitMState s q -> HttpRoute IO ()
 routeAppHandle mh s = routeFn $ \req -> lift $ liftM fst $ flip runMitM s $ do
   mvar <- lift newEmptyMVar
   mitigateWrite mh $ \(AppHandle _ h) -> do
