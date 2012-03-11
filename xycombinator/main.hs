@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Prelude hiding (head, min, max, id, div)
+import Prelude hiding (head, min, max, id, div, catch)
 import qualified Prelude as P
 import           Control.Applicative ((<$>))
 import           Control.Monad
@@ -27,6 +27,7 @@ import           Data.IterIO.HttpRoute
 import qualified Data.ListLike as LL
 
 import qualified LIO.TCB as LIO
+import LIO.MonadCatch
 import LIO.Concurrent
 import LIO.LIORef.TCB
 import LIO.DCLabel hiding (name)
@@ -83,6 +84,7 @@ handleRequest h = do
                                      , ("matches", routeFn $ mkHandler matches)
                                      , ("termination", routeFn $ mkHandler termination)
                                      , ("internal", routeFn $ mkHandler internal)
+                                     , ("external", routeFn $ mkHandler external)
                                      ]
                           ]
 
@@ -92,10 +94,12 @@ mkHandler app req = do
   let mtch = matchRegex (mkRegex "id=([0-9]+)") $ S.unpack $ reqQuery req
   let browserL = maybe lpub (\(uid:[]) -> newDC (uid) (<>)) mtch
   ((stat, body), resL) <- liftIO $ evalDC $ do
+                          catch (do
                             LIO.setLabelTCB lpub
                             res <- app req
                             LIO.wguard browserL
-                            return res
+                            return res)
+                            (\e@(LIO.LerrHigh) -> return (stat500, L.pack $ show e ++ "\n"))
   return $ mkHtmlResp stat body
 
 
@@ -118,9 +122,9 @@ page bd = docTypeHtml $ do
 
 termination :: HttpReq () -> DC (HttpStatus, L)
 termination req = do
-  let (Just mtch) = matchRegex (mkRegex "uid=([0-9]+)") $ S.unpack $ reqQuery req
+  let (Just mtch) = matchRegex (mkRegex "id1=([0-9]+)") $ S.unpack $ reqQuery req
   let uid = read $ P.head mtch
-  let (Just mtch) = matchRegex (mkRegex "fid=([0-9]+)") $ S.unpack $ reqQuery req
+  let (Just mtch) = matchRegex (mkRegex "id2=([0-9]+)") $ S.unpack $ reqQuery req
   let fid = read $ P.head mtch
 
   -- THIS IS THE IMPORTANT PART
@@ -139,9 +143,9 @@ sleepLIO t = LIO.ioTCB $ sleep t
 
 internal :: HttpReq () -> DC (HttpStatus, L)
 internal req = do
-  let (Just mtch) = matchRegex (mkRegex "uid=([0-9]+)") $ S.unpack $ reqQuery req
+  let (Just mtch) = matchRegex (mkRegex "id1=([0-9]+)") $ S.unpack $ reqQuery req
   let uid = read $ P.head mtch
-  let (Just mtch) = matchRegex (mkRegex "fid=([0-9]+)") $ S.unpack $ reqQuery req
+  let (Just mtch) = matchRegex (mkRegex "id2=([0-9]+)") $ S.unpack $ reqQuery req
   let fid = read $ P.head mtch
 
   -- THIS IS THE IMPORTANT PART
@@ -164,6 +168,24 @@ internal req = do
   -- THIS IS THE IMPORTANT PART
   result <- readLIORef shared
   let body = renderHtml $ toHtml $ show result
+  return $ (stat200, body)
+
+external :: HttpReq () -> DC (HttpStatus, L)
+external req = do
+  let (Just mtch) = matchRegex (mkRegex "id1=([0-9]+)") $ S.unpack $ reqQuery req
+  let uid = read $ P.head mtch
+  let (Just mtch) = matchRegex (mkRegex "id2=([0-9]+)") $ S.unpack $ reqQuery req
+  let fid = read $ P.head mtch
+
+  -- THIS IS THE IMPORTANT PART
+  interested <- interestFor uid
+  if fid `elem` interested then do
+    sleepLIO 10
+    return ()
+    else return ()
+  -- THIS IS THE IMPORTANT PART
+
+  let body = renderHtml $ "done"
   return $ (stat200, body)
 
 matches :: HttpReq () -> DC (HttpStatus, L)
