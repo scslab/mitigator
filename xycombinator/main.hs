@@ -11,7 +11,6 @@ import           Control.Exception (finally)
 import Data.Monoid (mconcat)
 import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.ByteString.Lazy.UTF8 as U
 import           Data.List (intersperse)
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -34,6 +33,10 @@ import LIO.DCLabel hiding (name)
 import System.Posix.Unistd
 import DCLabel.NanoEDSL
 
+import Mitigator
+import Mitigator.Time
+
+type MIO = TimeMitMC IO 
 type L = L.ByteString
 type S = S.ByteString
 
@@ -74,22 +77,49 @@ port = 8000
 -- Request handler
 --
 
-handleRequest :: (MonadIO m) => IO.Handle -> Iter L m ()
-handleRequest h = do
+-- | Data types for App handles.
+data AppHandle = AppHandle String (HttpReq () -> DC (HttpStatus, L))
+
+-- | Create an app handle
+appHandle :: String
+          -> (HttpReq () -> DC (HttpStatus, L))
+          -> Integer
+          -> MIO (TimeMitigatedC AppHandle)
+appHandle n f q = mkMitigated Nothing (mkQuant q) $ return $ AppHandle n f
+
+handleRequest :: IO.Handle -> HttpRequestHandler IO () -> Iter L IO ()
+handleRequest h handler = do
   req <- httpReqI
-  resp <- runHttpRoute routing req
+  resp <- handler req
   enumHttpResp resp Nothing .|$ handleI h
-  where routing = mconcat [ routeTop $ routeFn $ mkHandler welcome
-                          , routeMap [ ("welcome", routeFn $ mkHandler welcome)
-                                     , ("matches", routeFn $ mkHandler matches)
-                                     , ("termination", routeFn $ mkHandler termination)
-                                     , ("internal", routeFn $ mkHandler internal)
-                                     , ("external", routeFn $ mkHandler external)
-                                     ]
-                          ]
+
+routeAppHandle :: TimeMitigatedC AppHandle
+               -> MitMState () TStampDiff
+               -> HttpRoute IO ()
+routeAppHandle mh s = routeFn $ \req -> lift $ liftM fst $ flip runMitM s $ do
+  mvar <- lift newEmptyMVar
+  mitigate mh $ \(AppHandle _ h) -> do
+    resp <- (mkHandler h) req
+    putMVar mvar resp
+  lift $ takeMVar mvar
+
+routing :: MIO (HttpRoute IO ())
+routing = do
+  let mitTime = 500000
+  handles <- sequence $ [ appHandle "welcome" (welcome) mitTime
+                , appHandle "matches" (matches) mitTime
+                , appHandle "termination" (termination) mitTime
+                , appHandle "internal" (internal) mitTime
+                , appHandle "external" (external) mitTime]
+
+  s <- getMitMState
+  let routes = P.map (\mh -> (getName mh, routeAppHandle mh s)) handles
+  return $ mconcat [ routeTop $ routeConst $ resp303 "/welcome"
+                   , routeMap routes]
+  where getName (Mitigated _ (AppHandle n _)) = n
 
 mkHandler :: MonadIO m => (HttpReq () -> DC (HttpStatus, L))
-          -> HttpRequestHandler m ()
+          -> HttpReq () -> IO (HttpResp m)
 mkHandler app req = do
   let mtch = matchRegex (mkRegex "id=([0-9]+)") $ S.unpack $ reqQuery req
   let browserL = maybe lpub (\(uid:[]) -> newDC (uid) (<>)) mtch
@@ -180,7 +210,7 @@ external req = do
   -- THIS IS THE IMPORTANT PART
   interested <- interestFor uid
   if fid `elem` interested then do
-    sleepLIO 10
+    sleepLIO 1
     return ()
     else return ()
   -- THIS IS THE IMPORTANT PART
@@ -235,20 +265,22 @@ welcome req = do
 main :: IO ()
 main = Net.withSocketsDo $ do
   listener <- myListen port
-  forever $ acceptConnection listener
+  forever $ evalMitM $ acceptConnection listener
 
-acceptConnection :: Net.Socket -> IO ()
+acceptConnection :: Net.Socket -> MIO ()
 acceptConnection listener = do
-  (s, addr) <- Net.accept listener
-  forkIO $ handleConnection s
+  (s, addr) <- lift $ Net.accept listener
+  rts <- routing
+  forkMitM $ handleConnection s $ runHttpRoute rts
   return ()
 
-handleConnection :: Net.Socket -> IO ()
-handleConnection s = do
-  h <- Net.socketToHandle s IO.ReadWriteMode
-  IO.hSetBuffering h IO.NoBuffering
-  enumHandle' h |$ handleRequest h
-  IO.hClose h
+handleConnection :: Net.Socket -> HttpRequestHandler IO () -> MIO ()
+handleConnection s rts = do
+  lift $ do
+    h <- Net.socketToHandle s IO.ReadWriteMode
+    IO.hSetBuffering h IO.NoBuffering
+    enumHandle' h |$ handleRequest h rts
+    IO.hClose h
 
 
 --
