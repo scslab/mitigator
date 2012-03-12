@@ -72,13 +72,13 @@ instance Show TStampDiff where
 type TimeMitM = MitM TStamp TStampDiff
 
 -- | Time-mitigated handle.
-type TimeMitigated = Mitigated TStamp
+type TimeMitigated = Mitigated TStamp TStampDiff
 
 -- | Type of time-mitigated computation monad.
 type TimeMitMC = MitM () TStampDiff
 
 -- | Time-mitigated computation.
-type TimeMitigatedC = Mitigated ()
+type TimeMitigatedC = Mitigated () TStampDiff
 
 --  Operations
 
@@ -125,7 +125,7 @@ mkQuant = TStampDiff
 -- used by functions that need to block on the last operation on
 -- mitigated handle.
 wait :: (MonadConcur m, MonadTime m)
-     => Mitigated s a
+     => Mitigated s q a
      -> (a -> m ())
      -> MitM s q m ()
 wait (Mitigated nr h) m = do

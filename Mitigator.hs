@@ -33,9 +33,9 @@ import qualified Data.Map as Map
 
 -- | Mitigated typed. The tye variable @s@ corresponds to the
 -- mitigation type (e.g., time, or storage).
-data Mitigated s a = Mitigated { mitNr  :: !MitNr -- ^ Mitigator number
-                               , mitVal :: !a     -- ^ Handle
-                               }
+data Mitigated s q a = Mitigated { mitNr  :: !MitNr -- ^ Mitigator number
+                                 , mitVal :: !a     -- ^ Handle
+                                 }
 
 -- | State of Mitigator polymorphic in mitigator state and quentum.
 data MitigatorState s q = MitigatorState { mState :: !(Maybe s)
@@ -48,8 +48,8 @@ data MitigatorState s q = MitigatorState { mState :: !(Maybe s)
 -- quantum type.
 class MonadConcur m => Mitigator m s q where
   -- | Mitigate write function.
-  mitigate :: Mitigated s a    -- ^ Mitigated \"handle\"
-           -> (a -> m ())      -- ^ Computation on handle to mitigate
+  mitigate :: Mitigated s q a    -- ^ Mitigated \"handle\"
+           -> (a -> m ())        -- ^ Computation on handle to mitigate
            -> MitM s q m ()
 
 
@@ -57,7 +57,7 @@ class MonadConcur m => Mitigator m s q where
   mkMitigated :: Maybe s  -- ^ Internal state
               -> q        -- ^ Quantum
               -> m a      -- ^ Handle constructor
-              -> MitM s q m (Mitigated s a)
+              -> MitM s q m (Mitigated s q a)
   mkMitigated mstate quant constr = do
     h <- lift constr
     s <- getMitMState
