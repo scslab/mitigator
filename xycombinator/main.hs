@@ -265,13 +265,14 @@ welcome req = do
 main :: IO ()
 main = Net.withSocketsDo $ do
   listener <- myListen port
-  forever $ evalMitM $ acceptConnection listener
+  evalMitM $ do
+    rts <- routing
+    forever $ acceptConnection listener $ runHttpRoute rts
 
-acceptConnection :: Net.Socket -> MIO ()
-acceptConnection listener = do
+acceptConnection :: Net.Socket -> HttpRequestHandler IO () -> MIO ()
+acceptConnection listener rts = do
   (s, addr) <- lift $ Net.accept listener
-  rts <- routing
-  forkMitM $ handleConnection s $ runHttpRoute rts
+  forkMitM $ handleConnection s $ rts
   return ()
 
 handleConnection :: Net.Socket -> HttpRequestHandler IO () -> MIO ()
