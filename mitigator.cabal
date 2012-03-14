@@ -6,12 +6,21 @@ License-File:   LICENSE
 Author:         HAILS team
 Maintainer:	Deian Stefan  <deian at cs dot stanford dot edu>
 Stability:      experimental
-Synopsis:       Labeled IO Information Flow Control Library
+Synopsis:       General covert channel mitigator transformer
 Category:       Security
 Cabal-Version:  >= 1.6
 
 Description:
-        Mitigator
+  This library defines a basic interface for implementing covert
+  channel mitigators (e.g., external timing mitigator, or storage
+  mitigator). Concretely the library exposes a class 'Mitigator' and
+  monad transformer 'MitM' (read \"mitigated monad\", or
+  \"monad-in-the-middle\") that keeps the state of all mitigators.
+  This allows users to mitigate different \"object\" independently.
+  For example, one can build a mitigator per file-handle.
+  "Mitigator.Time" implements this interface for time-mitigated
+  handles and computations; "MIO.Handle" shows an implementation of
+  the former used to mitigate writes to handles.
 
 Library
   Build-Depends: base >= 4 && < 5,
